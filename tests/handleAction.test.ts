@@ -12,6 +12,7 @@ class InMemoryRepo implements RoomRepo {
   deck: string[];
   constructor(deck: string[]) { this.deck = deck; }
   async fetchDeckCardIds(): Promise<string[]> { return [...this.deck]; }
+  async fetchCard(): Promise<null> { return null; }
   async loadRoom(code: string): Promise<Room | null> {
     const r = this.rooms.get(code);
     return r ? structuredClone(r) : null;
