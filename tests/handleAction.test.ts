@@ -66,7 +66,8 @@ async function main() {
   ok(badRoom.ok === false && (badRoom as { reason: string }).reason === "room_not_found", "bilinmeyen oda reddedildi");
 
   console.log("\n[4] START_GAME + START_TURN (uçtan uca)");
-  ok((await handleAction(repo, { type: "START_GAME", code, byUserId: "u_ali" })).ok, "host oyunu başlattı");
+  // çift sayı now -> yazı-tura teamA'ya düşer (test deterministik kalsın)
+  ok((await handleAction(repo, { type: "START_GAME", code, byUserId: "u_ali" }, 1_700_000_000_000)).ok, "host oyunu başlattı");
   const room3 = await repo.loadRoom(code);
   ok(room3!.phase === GamePhase.PLAYING, "oyun PLAYING");
   ok(room3!.slots[room3!.activeTurn!.explainerSlotId].name === "Ali", "ilk anlatan Ali");

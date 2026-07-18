@@ -43,10 +43,13 @@ export class SupabaseRoomRepo implements RoomRepo {
     if (sErr) throw new Error("insertRoom(slots): " + sErr.message);
   }
 
-  async saveRoom(room: Room): Promise<void> {
+  async saveRoom(room: Room, opts?: { slots?: boolean }): Promise<void> {
     const { roomRow, slotRows } = mapRoomToRows(room);
     const { error: rErr } = await supabaseAdmin.from("rooms").update(roomRow).eq("code", room.code);
     if (rErr) throw new Error("saveRoom(rooms): " + rErr.message);
+
+    // Slotlar degismediyse (oyun ici aksiyonlar) hic yazma -> 1-2 tur daha az gidis-donus.
+    if (opts && opts.slots === false) return;
 
     // İKİ AŞAMALI slot yazımı:
     // "bir kişi tek isim tutabilir" kısıtını ihlal etmemek için önce BOŞALTILANLARI

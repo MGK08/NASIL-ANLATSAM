@@ -8,6 +8,7 @@ import { getUserId } from "../../../lib/identity";
 import { postAction, getCard } from "../../../lib/api";
 import { viewRole } from "../../../engine/roles";
 import { CaptainBadge } from "../../../components/CaptainBadge";
+import { CoinFlip } from "../../../components/CoinFlip";
 import type { Room, Card, TeamId } from "../../../types/game";
 import { GamePhase, TurnStatus } from "../../../types/game";
 
@@ -32,6 +33,8 @@ export default function OyunPage() {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [coinDone, setCoinDone] = useState(false);
   const endedRef = useRef<string>("");
   const myId = typeof window !== "undefined" ? getUserId() : "";
 
@@ -55,14 +58,28 @@ export default function OyunPage() {
   const remainingMs = t?.endsAt ? t.endsAt - now : 0;
   const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
 
+  const expired = status === TurnStatus.ACTIVE && remainingMs <= 0;
+
   useEffect(() => {
-    const key = t ? `${t.explainerSlotId}-${t.startedAt}` : "";
-    if (role === "explainer" && status === TurnStatus.ACTIVE && remainingMs <= 0 && endedRef.current !== key) {
+    if (!expired || !t) return;
+    const key = `${t.explainerSlotId}-${t.startedAt}`;
+    if (endedRef.current !== key) {
       endedRef.current = key;
       vibrate([120, 60, 120]);
-      postAction({ type: "END_TURN", code });
     }
-  }, [remainingMs, role, status, t, code]);
+    // Anlatan hemen dener; diğerleri yedek olarak biraz gecikmeli dener.
+    // Reddedilirse (yarış / saat farkı) tekrar denenir -> oyun 0'da kilitlenmez.
+    const delay = role === "explainer" ? 0 : 2000;
+    let stopped = false;
+    const fire = () => { if (!stopped) postAction({ type: "END_TURN", code }); };
+    const first = setTimeout(fire, delay);
+    const retry = setInterval(fire, 2500);
+    return () => { stopped = true; clearTimeout(first); clearInterval(retry); };
+  }, [expired, t?.explainerSlotId, t?.startedAt, role, code]);
+
+  // Yeni oyun başlayınca yazı-tura tekrar gösterilsin
+  const gameKey = room ? `${room.phase}-${room.round}-${room.turnOrder[0] ?? ""}` : "";
+  useEffect(() => { setCoinDone(false); }, [gameKey]);
 
   const me = room ? (Object.values(room.slots).find((s) => s.claimedByUserId === myId) ?? null) : null;
   const Bg = <div aria-hidden style={{ position: "fixed", inset: 0, zIndex: -1, background: teamBg(me?.teamId) }} />;
@@ -83,6 +100,21 @@ export default function OyunPage() {
   const sameTeam = !!(me && exTeamId && me.teamId === exTeamId);
 
   // Rozetler
+  const CodeChip = (
+    <button
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(code); } catch {}
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 1500);
+      }}
+      style={{ ...chipStyle, color: "var(--ink)", border: "none", cursor: "pointer", letterSpacing: "0.06em" }}
+    >
+      {codeCopied ? "Kopyalandı ✓" : `Kod: ${code}`}
+    </button>
+  );
+  const TargetChip = (
+    <span style={{ ...chipStyle, color: "var(--ink)" }}>Hedef: {room.settings.targetScore}</span>
+  );
   const MeChip = me ? (
     <span style={{ ...chipStyle, color: teamColor(me.teamId) }}>
       Sen: {me.name}{me.isCaptain && <CaptainBadge size={15} />} · {room.teams[me.teamId].name}
@@ -145,11 +177,27 @@ export default function OyunPage() {
 
   // ---------- TUR HAZIR ----------
   if (status === TurnStatus.READY) {
+    // Oyunun ilk turu -> herkese yazı-tura
+    const isFirstTurn = room.round === 1 && room.turnIndex === 0;
+    const startTeamId = t?.teamId ?? "teamA";
+    if (isFirstTurn && !coinDone) {
+      return (
+        <main className="screen game">
+          {Bg}
+          {Scoreboard}
+          <CoinFlip
+            winnerTeamId={startTeamId}
+            winnerName={room.teams[startTeamId].name}
+            onDone={() => setCoinDone(true)}
+          />
+        </main>
+      );
+    }
     return (
       <main className="screen game">
         {Bg}
         {Scoreboard}
-        <div className="inforow">{MeChip}</div>
+        <div className="inforow">{MeChip}{TargetChip}{CodeChip}</div>
         <div className="mid">
           <div className="turn-hero">
             <p className="turn-sub">Sıra</p>
@@ -179,6 +227,8 @@ export default function OyunPage() {
         : role === "teammate"
           ? exChip
           : <span style={{ ...chipStyle, color: exTeamId ? teamColor(exTeamId) : undefined }}>{explainer?.name} anlatıyor · rakip</span>}
+      {TargetChip}
+      {CodeChip}
     </div>
   );
 
@@ -205,20 +255,27 @@ export default function OyunPage() {
                 <ul className="forbidden-list">{card.forbiddenWords.map((w) => <li key={w}>{w}</li>)}</ul>
               </div>
             ) : <p className="turn-sub" style={{ textAlign: "center" }}>Kart yükleniyor…</p>}
+            {expired && <p className="turn-sub" style={{ textAlign: "center", marginTop: 8 }}>⏱ Süre doldu — sıradaki oyuncuya geçiliyor…</p>}
           </div>
 
           {role === "explainer" && (
-            <div className="btn-row">
-              <button className="btn btn--pass" disabled={busy || passesLeft <= 0}
+            <>
+              <div className="btn-row">
+                <button className="btn btn--taboo" disabled={busy || expired}
+                  onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId() }, [80, 40, 80])}>
+                  Yanlış dedim (−1)
+                </button>
+                <button className="btn btn--go" disabled={busy || expired}
+                  onClick={() => act({ type: "CORRECT_GUESS", code, byUserId: getUserId() }, 50)}>Anlattım ✓</button>
+              </div>
+              <button className="btn btn--pass" style={{ marginTop: 8 }} disabled={busy || expired || passesLeft <= 0}
                 onClick={() => act({ type: "PASS_CARD", code, byUserId: getUserId() }, 30)}>
                 Pas{passesLeft > 0 ? ` (${passesLeft})` : ""}
               </button>
-              <button className="btn btn--go" disabled={busy}
-                onClick={() => act({ type: "CORRECT_GUESS", code, byUserId: getUserId() }, 50)}>Anlattım ✓</button>
-            </div>
+            </>
           )}
           {role === "opponentCaptain" && (
-            <button className="btn btn--taboo" disabled={busy}
+            <button className="btn btn--taboo" disabled={busy || expired}
               onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId() }, [80, 40, 80])}>
               Yasaklı Kelime Dedi! (−1)
             </button>

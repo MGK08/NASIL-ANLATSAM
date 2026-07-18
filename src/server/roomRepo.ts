@@ -5,6 +5,6 @@ export interface RoomRepo {
   fetchDeckCardIds(deckId: string): Promise<string[]>;
   loadRoom(code: string): Promise<Room | null>;
   insertRoom(room: Room): Promise<void>;
-  saveRoom(room: Room): Promise<void>;
+  saveRoom(room: Room, opts?: { slots?: boolean }): Promise<void>;
   fetchCard(cardId: string): Promise<Card | null>;
 }

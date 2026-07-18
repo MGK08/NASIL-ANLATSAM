@@ -93,7 +93,11 @@ export function validateAction(
       const opp = otherTeam(room.activeTurn.teamId);
       const capSlotId = room.teams[opp].captainSlotId;
       const capSlot = capSlotId ? room.slots[capSlotId] : undefined;
-      if (!capSlot || capSlot.claimedByUserId !== action.byUserId)
+      // Rakip kaptan basabilir; ayrıca anlatan kendi hatasını bildirebilir.
+      const explainer = room.slots[room.activeTurn.explainerSlotId];
+      const isExplainer = !!explainer && explainer.claimedByUserId === action.byUserId;
+      const isOppCaptain = !!capSlot && capSlot.claimedByUserId === action.byUserId;
+      if (!isOppCaptain && !isExplainer)
         return { ok: false, reason: "only_opponent_captain" };
       return { ok: true };
     }
@@ -146,7 +150,8 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
     }
 
     case "START_GAME": {
-      r.turnOrder = buildTurnOrder(r.slots);
+      // Yazı-tura: hangi takım başlıyor? (now'dan türetilir; reducer saf kalır)
+      r.turnOrder = buildTurnOrder(r.slots, now % 2 === 0 ? "teamA" : "teamB");
       r.turnIndex = 0;
       r.round = 1;
       const firstSlotId = r.turnOrder[0];
@@ -230,7 +235,7 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
       r.usedCardIds = [];
       r.winnerTeamId = null;
       r.round = 1;
-      r.turnOrder = buildTurnOrder(r.slots);
+      r.turnOrder = buildTurnOrder(r.slots, now % 2 === 0 ? "teamA" : "teamB");
       r.turnIndex = 0;
       const firstSlotId = r.turnOrder[0];
       r.activeTurn = freshTurn(firstSlotId, r.slots[firstSlotId].teamId);

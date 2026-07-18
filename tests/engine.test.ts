@@ -85,7 +85,7 @@ ok(!validateAction(room, { type: "PASS_CARD", code: room.code, byUserId: "u_ali"
 ok(room.activeTurn!.currentCardId === "c005", "pas sonrası kart c005");
 
 console.log("\n[8] Tabu (rakip kaptan) -1");
-ok(!validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_ali" }).ok, "anlatan tabu basamaz");
+ok(validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_ali" }).ok, "anlatan kendi hatasını bildirebilir");
 ok(!validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_zey" }).ok, "kaptan olmayan tabu basamaz");
 room = step(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_veli" }); // rakip kaptan Veli
 ok(room.teams.teamA.score === 0, "tabu ile skor 1->0 (altına inmez)");

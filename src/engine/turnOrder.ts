@@ -11,15 +11,18 @@ function sortedByPosition(slots: PlayerSlot[], team: TeamId): PlayerSlot[] {
  * Anlatma sırasını üretir: takımlar arası DÖNÜŞÜMLÜ (A0, B0, A1, B1, ...).
  * Takımlar farklı sayıdaysa kalanlar sona eklenir. Döngüsellik turnIndex ile sağlanır.
  */
-export function buildTurnOrder(slots: Record<string, PlayerSlot>): string[] {
+export function buildTurnOrder(
+  slots: Record<string, PlayerSlot>,
+  firstTeam: TeamId = "teamA"
+): string[] {
   const all = Object.values(slots);
-  const a = sortedByPosition(all, "teamA");
-  const b = sortedByPosition(all, "teamB");
+  const first = sortedByPosition(all, firstTeam);
+  const second = sortedByPosition(all, firstTeam === "teamA" ? "teamB" : "teamA");
   const order: string[] = [];
-  const max = Math.max(a.length, b.length);
+  const max = Math.max(first.length, second.length);
   for (let i = 0; i < max; i++) {
-    if (i < a.length) order.push(a[i].slotId);
-    if (i < b.length) order.push(b[i].slotId);
+    if (i < first.length) order.push(first[i].slotId);
+    if (i < second.length) order.push(second[i].slotId);
   }
   return order;
 }

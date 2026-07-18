@@ -52,6 +52,7 @@ export async function handleAction(
   if (!v.ok) return { ok: false, reason: v.reason };
 
   const next = applyAction(room, action, now);
-  await repo.saveRoom(next);
+  const slotsChanged = JSON.stringify(room.slots) !== JSON.stringify(next.slots);
+  await repo.saveRoom(next, { slots: slotsChanged });
   return { ok: true };
 }
