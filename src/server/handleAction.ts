@@ -8,7 +8,7 @@ import type { GameAction } from "../types/game";
 import { createRoom } from "../engine/createRoom";
 import { applyAction, validateAction } from "../engine/rulesEngine";
 import { generateRoomCode } from "../lib/roomCode";
-import type { RoomRepo } from "./roomRepo";
+import { ConflictError, type RoomRepo } from "./roomRepo";
 import { effectiveHostUserId, isSlotTakeoverable } from "./presenceRules";
 
 export type ActionResult = { ok: true; code?: string } | { ok: false; reason: string };
@@ -21,10 +21,32 @@ async function generateUniqueCode(repo: RoomRepo): Promise<string | null> {
   return null;
 }
 
+/**
+ * Aksiyonu uygular. Araya başka bir yazma girerse (ConflictError)
+ * odayı yeniden okuyup baştan dener — böylece hiçbir güncelleme kaybolmaz.
+ */
 export async function handleAction(
   repo: RoomRepo,
   action: GameAction,
   now: number = Date.now()
+): Promise<ActionResult> {
+  for (let deneme = 0; deneme < 4; deneme++) {
+    try {
+      return await handleActionOnce(repo, action, now);
+    } catch (e) {
+      if ((e as Error)?.name !== "ConflictError") throw e;
+      // Kısa bekleyip tazelenmiş veriyle tekrar dene
+      await new Promise((r) => setTimeout(r, 40 + deneme * 60));
+      now = Date.now();
+    }
+  }
+  return { ok: false, reason: "conflict_retry_failed" };
+}
+
+async function handleActionOnce(
+  repo: RoomRepo,
+  action: GameAction,
+  now: number
 ): Promise<ActionResult> {
   if (action.type === "CREATE_ROOM") {
     const code = await generateUniqueCode(repo);
@@ -66,6 +88,6 @@ export async function handleAction(
 
   const next = applyAction(room, action, now);
   const slotsChanged = JSON.stringify(room.slots) !== JSON.stringify(next.slots);
-  await repo.saveRoom(next, { slots: slotsChanged });
+  await repo.saveRoom(next, { slots: slotsChanged, expectedUpdatedAt: room.updatedAt });
   return { ok: true };
 }
