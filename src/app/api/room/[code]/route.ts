@@ -1,5 +1,6 @@
-/** GET /api/room/[code] — odanın güncel durumunu (Room) döndürür. */
+/** GET /api/room/[code] — odanın güncel durumu + kim çevrimiçi bilgisi. */
 import { SupabaseRoomRepo } from "../../../../server/supabaseRoomRepo";
+import { presenceBySlot, effectiveHostUserId } from "../../../../server/presenceRules";
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -14,8 +15,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ code: string }
     const repo = new SupabaseRoomRepo();
     const room = await repo.loadRoom(code);
     if (!room) return json({ ok: false, reason: "not_found" }, 404);
-    return json(room, 200);
-  } catch (e) {
+    const raw = await repo.loadPresence(code);
+    return json({ ...room, presence: presenceBySlot(room, raw), effectiveHostUserId: effectiveHostUserId(room, raw) }, 200);
+  } catch {
     return json({ ok: false, reason: "server_error" }, 500);
   }
 }

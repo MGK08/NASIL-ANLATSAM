@@ -17,6 +17,7 @@ export default function OdaPage() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [err, setErr] = useState("");
   const myId = typeof window !== "undefined" ? getUserId() : "";
 
   useEffect(() => {
@@ -24,9 +25,14 @@ export default function OdaPage() {
     return unsub;
   }, [code]);
 
+  const inGame = !!room && room.phase !== GamePhase.LOBBY;
+  const iHaveSlot = !!room && Object.values(room.slots).some((s) => s.claimedByUserId === myId);
+
   useEffect(() => {
-    if (room && room.phase !== GamePhase.LOBBY) router.push(`/oyun/${code}`);
-  }, [room?.phase, code, router]);
+    // Oyun sürüyorsa ve zaten bir ismim varsa doğrudan oyuna dön.
+    // İsmim yoksa burada kalıp düşen birinin yerine geçebilirim.
+    if (inGame && iHaveSlot) router.push(`/oyun/${code}`);
+  }, [inGame, iHaveSlot, code, router]);
 
   if (loaded && !room) {
     return (
@@ -44,11 +50,21 @@ export default function OdaPage() {
     : [];
   const mySlot = slots.find((s) => s.claimedByUserId === myId) ?? null;
   const allClaimed = slots.length > 0 && slots.every((s) => s.claimedByUserId);
-  const iAmHost = mySlot?.isHost ?? false;
+  const iAmHost = room?.effectiveHostUserId
+    ? room.effectiveHostUserId === myId
+    : (mySlot?.isHost ?? false);
 
   async function pick(slotId: string) {
     if (busy) return;
     setBusy(true);
+    if (inGame) {
+      // Oyun sürüyor: düşen oyuncunun yerine geç
+      const res = await postAction({ type: "TAKEOVER_SLOT", code, slotId, userId: getUserId() });
+      if (res.ok) router.push(`/oyun/${code}`);
+      else setErr(res.reason === "slot_owner_online" ? "Bu oyuncu hâlâ bağlı görünüyor." : "Bu isim alınamadı.");
+      setBusy(false);
+      return;
+    }
     if (mySlot && mySlot.slotId === slotId) {
       // Kendi ismine tekrar basınca seçimi bırak (isim tekrar boşa düşer)
       await postAction({ type: "RELEASE_SLOT", code, userId: getUserId() });
@@ -87,12 +103,22 @@ export default function OdaPage() {
       </p>
 
       <div className="card">
-        <p className="section-title">{mySlot ? "İsmini değiştirebilirsin" : "Sen kimsin? İsmini seç"}</p>
+        <p className="section-title">
+          {inGame ? "Oyun sürüyor — kimin yerine geçiyorsun?" : mySlot ? "İsmini değiştirebilirsin" : "Sen kimsin? İsmini seç"}
+        </p>
+        {inGame && <p className="hint" style={{ marginBottom: 8 }}>Yalnızca bağlantısı kopan oyuncular seçilebilir.</p>}
+        {err && <p className="error" style={{ marginBottom: 8 }}>{err}</p>}
         {!loaded && <p className="hint">Yükleniyor…</p>}
         <div className="stack" style={{ gap: 10 }}>
           {slots.map((s) => {
-            const takenByOther = !!s.claimedByUserId && s.claimedByUserId !== myId;
             const mine = s.claimedByUserId === myId;
+            const seen = room?.presence?.[s.slotId];
+            const online = !!seen && Date.now() - seen < 30_000;
+            const dropped = !!s.claimedByUserId && !online;
+            // Lobide: dolu slot seçilemez. Oyunda: yalnızca düşenler devralınabilir.
+            const takenByOther = inGame
+              ? !(dropped && !mine)
+              : (!!s.claimedByUserId && !mine);
             return (
               <button
                 key={s.slotId}
@@ -111,8 +137,9 @@ export default function OdaPage() {
                 <span style={{ fontWeight: 800 }}>
                   {s.name}{s.isCaptain && <CaptainBadge />}{s.isHost ? " (kurucu)" : ""}
                 </span>
-                <span className="hint" style={{ color: teamColor(s.teamId) }}>
-                  {teamLabel(s.teamId)}{mine ? " • sen" : s.claimedByUserId ? " • dolu" : ""}
+                <span className="hint" style={{ color: dropped ? "#C0392B" : teamColor(s.teamId) }}>
+                  {teamLabel(s.teamId)}
+                  {mine ? " • sen" : dropped ? " • bağlantı koptu" : s.claimedByUserId ? " • dolu" : ""}
                 </span>
               </button>
             );
@@ -125,7 +152,11 @@ export default function OdaPage() {
 
       <div className="grow" />
 
-      {iAmHost ? (
+      {inGame ? (
+        <p className="hint" style={{ textAlign: "center", color: "#FFE2D6" }}>
+          Bağlantısı kopan biri yoksa bekle; kopan olursa ismi burada seçilebilir olur.
+        </p>
+      ) : iAmHost ? (
         <button className="btn btn--bubble" onClick={start} disabled={!allClaimed || busy}>
           {allClaimed ? "Başlat" : "Herkesin seçmesi bekleniyor…"}
         </button>

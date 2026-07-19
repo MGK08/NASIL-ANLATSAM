@@ -103,6 +103,11 @@ export interface ActiveTurn {
   passedCardIds: string[];
   tabooCardIds: string[];
   usedPasses: number;
+  /** Süre duraklatıldıysa: duraklatma anı ve kalan süre (ms). */
+  pausedAt?: number | null;
+  pausedRemainingMs?: number | null;
+  /** Son tabu bildirimi — 5 sn'lik şerit + "Geri al" penceresi için. */
+  lastTaboo?: { cardId: string; byUserId: string; at: number } | null;
 }
 
 /* ============================================================
@@ -124,6 +129,10 @@ export interface Room {
   winnerTeamId: TeamId | null;
   createdAt: number;
   updatedAt: number;
+  /** Sunucu tarafından eklenir (DB'de tutulmaz): slotId -> son görülme (ms) */
+  presence?: Record<string, number>;
+  /** Kurucu düştüyse yetkiyi geçici olarak taşıyan kullanıcı */
+  effectiveHostUserId?: string;
 }
 
 /* ============================================================
@@ -134,12 +143,17 @@ export type GameAction =
   | { type: "CREATE_ROOM"; hostUserId: string; settings: GameSettings; setup: TeamSetup }
   | { type: "CLAIM_SLOT"; code: string; slotId: string; userId: string; avatar?: string }
   | { type: "RELEASE_SLOT"; code: string; userId: string }   // isim değiştirmek için
+  | { type: "TAKEOVER_SLOT"; code: string; slotId: string; userId: string } // düşen oyuncunun yerine geç
   | { type: "START_GAME"; code: string; byUserId: string }
   // Tur oynanışı
   | { type: "START_TURN"; code: string; byUserId: string }   // anlatan "Başla"
   | { type: "CORRECT_GUESS"; code: string; byUserId: string }// +1, yeni kart
   | { type: "PASS_CARD"; code: string; byUserId: string }    // yeni kart (limit 3)
-  | { type: "TABOO_VIOLATION"; code: string; byUserId: string } // rakip kaptan: -1, kart atla
+  | { type: "TABOO_VIOLATION"; code: string; byUserId: string; cardId?: string } // -1 + süre durur
+  | { type: "UNDO_TABOO"; code: string; byUserId: string }      // 5 sn içinde geri al
+  | { type: "RESUME_AFTER_TABOO"; code: string }                // şerit bitti -> yeni kart, süre devam
+  | { type: "PAUSE_TURN"; code: string; byUserId: string }      // rakip kaptan duraklatır
+  | { type: "RESUME_TURN"; code: string; byUserId: string }     // rakip kaptan devam ettirir
   | { type: "END_TURN"; code: string }                       // süre bitti / otomatik
   | { type: "NEXT_TURN"; code: string; byUserId: string }    // review -> Başla ekranı
   // Yaşam döngüsü

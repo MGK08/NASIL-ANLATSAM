@@ -9,6 +9,7 @@ import { createRoom } from "../engine/createRoom";
 import { applyAction, validateAction } from "../engine/rulesEngine";
 import { generateRoomCode } from "../lib/roomCode";
 import type { RoomRepo } from "./roomRepo";
+import { effectiveHostUserId, isSlotTakeoverable } from "./presenceRules";
 
 export type ActionResult = { ok: true; code?: string } | { ok: false; reason: string };
 
@@ -48,7 +49,19 @@ export async function handleAction(
   const room = await repo.loadRoom(code);
   if (!room) return { ok: false, reason: "room_not_found" };
 
-  const v = validateAction(room, action);
+  // Kurucu düştüyse yetkiler geçici olarak sıradaki bağlı oyuncuya geçer.
+  // (DB'deki hostUserId değişmez; kurucu dönünce yetkiler kendiliğinden geri gelir.)
+  const presence = repo.loadPresence ? await repo.loadPresence(code) : {};
+  const effHost = effectiveHostUserId(room, presence, now);
+  const roomForValidation = effHost === room.hostUserId ? room : { ...room, hostUserId: effHost };
+
+  // Yerine geçme: gerçekten düşmüş mü?
+  if (action.type === "TAKEOVER_SLOT") {
+    const okToTake = isSlotTakeoverable(room, action.slotId, presence, now);
+    if (!okToTake) return { ok: false, reason: "slot_owner_online" };
+  }
+
+  const v = validateAction(roomForValidation, action);
   if (!v.ok) return { ok: false, reason: v.reason };
 
   const next = applyAction(room, action, now);

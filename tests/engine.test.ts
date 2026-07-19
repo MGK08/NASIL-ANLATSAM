@@ -87,9 +87,48 @@ ok(room.activeTurn!.currentCardId === "c005", "pas sonrası kart c005");
 console.log("\n[8] Tabu (rakip kaptan) -1");
 ok(validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_ali" }).ok, "anlatan kendi hatasını bildirebilir");
 ok(!validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_zey" }).ok, "kaptan olmayan tabu basamaz");
+const kartTabu = room.activeTurn!.currentCardId!;
 room = step(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_veli" }); // rakip kaptan Veli
 ok(room.teams.teamA.score === 0, "tabu ile skor 1->0 (altına inmez)");
 ok(room.activeTurn!.tabooCardIds.length === 1, "tabu kartı kaydedildi");
+ok(!!room.activeTurn!.pausedAt, "tabu süreyi duraklattı");
+ok(room.activeTurn!.lastTaboo?.cardId === kartTabu, "şerit için tabu kaydı tutuldu");
+ok(room.activeTurn!.currentCardId === kartTabu, "şerit boyunca kart ekranda kalır");
+
+console.log("\n[8b] Çift sayım koruması");
+ok(!validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_ali" }).ok,
+   "şerit açıkken ikinci tabu reddedilir");
+ok(!validateAction(room, { type: "CORRECT_GUESS", code: room.code, byUserId: "u_ali" }).ok,
+   "duraklatılmışken Anlattım çalışmaz");
+ok(!validateAction(room, { type: "END_TURN", code: room.code }).ok,
+   "duraklatılmışken süre bitmiş sayılmaz");
+
+console.log("\n[8c] Geri al");
+let geri = step(room, { type: "UNDO_TABOO", code: room.code, byUserId: "u_veli" });
+ok(geri.teams.teamA.score === 1, "geri alınca puan iade edildi");
+ok(geri.activeTurn!.tabooCardIds.length === 0, "geri alınca tabu kaydı silindi");
+ok(!geri.activeTurn!.pausedAt, "geri alınca süre devam etti");
+ok(!validateAction(room, { type: "UNDO_TABOO", code: room.code, byUserId: "u_zey" }).ok,
+   "geri almayı sadece basan kişi yapabilir");
+
+console.log("\n[8d] Şerit bitti -> yeni kart, süre devam");
+room = step(room, { type: "RESUME_AFTER_TABOO", code: room.code });
+ok(room.activeTurn!.currentCardId !== kartTabu, "şerit sonrası yeni kart geldi");
+ok(!room.activeTurn!.pausedAt, "süre yeniden akıyor");
+
+console.log("\n[8e] Eski karta ait geç istek yok sayılır");
+ok(!validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_veli", cardId: kartTabu }).ok,
+   "ekranı yenilenmemiş geç tabu isteği reddedilir");
+ok(validateAction(room, { type: "TABOO_VIOLATION", code: room.code, byUserId: "u_veli", cardId: room.activeTurn!.currentCardId! }).ok,
+   "güncel kart için tabu kabul edilir");
+
+console.log("\n[8f] Duraklatma (rakip kaptan)");
+ok(!validateAction(room, { type: "PAUSE_TURN", code: room.code, byUserId: "u_ali" }).ok, "anlatan duraklatamaz");
+let dur = step(room, { type: "PAUSE_TURN", code: room.code, byUserId: "u_veli" });
+ok(!!dur.activeTurn!.pausedAt, "rakip kaptan duraklattı");
+ok(!validateAction(dur, { type: "RESUME_TURN", code: dur.code, byUserId: "u_ali" }).ok, "anlatan devam ettiremez");
+dur = step(dur, { type: "RESUME_TURN", code: dur.code, byUserId: "u_veli" });
+ok(!dur.activeTurn!.pausedAt, "rakip kaptan devam ettirdi");
 
 console.log("\n[9] Süre bitti -> sıradaki anlatana geç (yarım kart sayılmaz)");
 room = step(room, { type: "END_TURN", code: room.code });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { subscribeRoom } from "../../../realtime/subscribeRoom";
 import { getUserId } from "../../../lib/identity";
@@ -11,6 +11,8 @@ import { CaptainBadge } from "../../../components/CaptainBadge";
 import { CoinFlip } from "../../../components/CoinFlip";
 import type { Room, Card, TeamId } from "../../../types/game";
 import { GamePhase, TurnStatus } from "../../../types/game";
+
+const TABOO_BANNER_MS = 5000;
 
 function vibrate(ms: number | number[]) {
   if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(ms);
@@ -28,6 +30,7 @@ const chipStyle: React.CSSProperties = {
 
 export default function OyunPage() {
   const { code } = useParams<{ code: string }>();
+  const router = useRouter();
   const [room, setRoom] = useState<Room | null>(null);
   const [card, setCard] = useState<Card | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -49,26 +52,26 @@ export default function OyunPage() {
   const status = t?.status;
   const cardId = t?.currentCardId ?? null;
   const canSeeCard = role === "explainer" || role === "opponent" || role === "opponentCaptain";
+  const paused = !!t?.pausedAt;
+  const lastTaboo = t?.lastTaboo ?? null;
 
   useEffect(() => {
     if (status === TurnStatus.ACTIVE && canSeeCard && cardId) getCard(code, myId).then(setCard);
     else setCard(null);
   }, [cardId, status, canSeeCard, code, myId]);
 
-  const remainingMs = t?.endsAt ? t.endsAt - now : 0;
+  // Duraklatılmışken sayaç donar
+  const remainingMs = paused
+    ? (t?.pausedRemainingMs ?? 0)
+    : t?.endsAt ? t.endsAt - now : 0;
   const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
+  const expired = status === TurnStatus.ACTIVE && !paused && remainingMs <= 0;
 
-  const expired = status === TurnStatus.ACTIVE && remainingMs <= 0;
-
+  // Süre bitti -> turu bitir (tekrar denemeli + herkesten yedekli)
   useEffect(() => {
     if (!expired || !t) return;
     const key = `${t.explainerSlotId}-${t.startedAt}`;
-    if (endedRef.current !== key) {
-      endedRef.current = key;
-      vibrate([120, 60, 120]);
-    }
-    // Anlatan hemen dener; diğerleri yedek olarak biraz gecikmeli dener.
-    // Reddedilirse (yarış / saat farkı) tekrar denenir -> oyun 0'da kilitlenmez.
+    if (endedRef.current !== key) { endedRef.current = key; vibrate([120, 60, 120]); }
     const delay = role === "explainer" ? 0 : 2000;
     let stopped = false;
     const fire = () => { if (!stopped) postAction({ type: "END_TURN", code }); };
@@ -77,12 +80,29 @@ export default function OyunPage() {
     return () => { stopped = true; clearTimeout(first); clearInterval(retry); };
   }, [expired, t?.explainerSlotId, t?.startedAt, role, code]);
 
-  // Yeni oyun başlayınca yazı-tura tekrar gösterilsin
-  const gameKey = room ? `${room.phase}-${room.round}-${room.turnOrder[0] ?? ""}` : "";
-  useEffect(() => { setCoinDone(false); }, [gameKey]);
+  // Tabu şeridi bitince otomatik devam (yeni kart + süre akar)
+  useEffect(() => {
+    if (!lastTaboo) return;
+    const left = Math.max(0, lastTaboo.at + TABOO_BANNER_MS - Date.now());
+    const delay = left + (role === "explainer" ? 0 : 1200);
+    let stopped = false;
+    const fire = () => { if (!stopped) postAction({ type: "RESUME_AFTER_TABOO", code }); };
+    const first = setTimeout(fire, delay);
+    const retry = setInterval(fire, 2500);
+    return () => { stopped = true; clearTimeout(first); clearInterval(retry); };
+  }, [lastTaboo?.at, lastTaboo?.cardId, role, code]);
 
   const me = room ? (Object.values(room.slots).find((s) => s.claimedByUserId === myId) ?? null) : null;
   const Bg = <div aria-hidden style={{ position: "fixed", inset: 0, zIndex: -1, background: teamBg(me?.teamId) }} />;
+
+  // Bu cihazın bir ismi yoksa (yeni cihaz / veri silinmiş) lobiye gidip
+  // düşen birinin yerine geçmesi gerekir.
+  useEffect(() => {
+    if (room && room.phase !== GamePhase.FINISHED && !me) router.push(`/oda/${code}`);
+  }, [room?.phase, me, code, router]);
+
+  const gameKey = room ? `${room.phase}-${room.round}-${room.turnOrder[0] ?? ""}` : "";
+  useEffect(() => { setCoinDone(false); }, [gameKey]);
 
   if (!room) return <main className="screen screen--center"><p className="tagline">Oyun yükleniyor…</p></main>;
 
@@ -94,27 +114,23 @@ export default function OyunPage() {
     setBusy(false);
   }
 
+  const isHost = room.effectiveHostUserId ? room.effectiveHostUserId === myId : (me?.isHost ?? false);
   const A = room.teams.teamA, B = room.teams.teamB;
   const explainer = t ? room.slots[t.explainerSlotId] : null;
   const exTeamId = t?.teamId ?? null;
   const sameTeam = !!(me && exTeamId && me.teamId === exTeamId);
+  const iReported = !!lastTaboo && lastTaboo.byUserId === myId;
 
-  // Rozetler
   const CodeChip = (
     <button
       onClick={async () => {
         try { await navigator.clipboard.writeText(code); } catch {}
-        setCodeCopied(true);
-        setTimeout(() => setCodeCopied(false), 1500);
+        setCodeCopied(true); setTimeout(() => setCodeCopied(false), 1500);
       }}
       style={{ ...chipStyle, color: "var(--ink)", border: "none", cursor: "pointer", letterSpacing: "0.06em" }}
-    >
-      {codeCopied ? "Kopyalandı ✓" : `Kod: ${code}`}
-    </button>
+    >{codeCopied ? "Kopyalandı ✓" : `Kod: ${code}`}</button>
   );
-  const TargetChip = (
-    <span style={{ ...chipStyle, color: "var(--ink)" }}>Hedef: {room.settings.targetScore}</span>
-  );
+  const TargetChip = <span style={{ ...chipStyle, color: "var(--ink)" }}>Hedef: {room.settings.targetScore}</span>;
   const MeChip = me ? (
     <span style={{ ...chipStyle, color: teamColor(me.teamId) }}>
       Sen: {me.name}{me.isCaptain && <CaptainBadge size={15} />} · {room.teams[me.teamId].name}
@@ -126,8 +142,8 @@ export default function OyunPage() {
     </span>
   ) : null;
 
-  const EndGame = me?.isHost ? (
-    <div style={{ textAlign: "center", marginTop: 14 }}>
+  const EndGame = isHost ? (
+    <div style={{ textAlign: "center", marginTop: 12 }}>
       {!confirmEnd ? (
         <button onClick={() => setConfirmEnd(true)} style={{
           border: "2px solid rgba(255,247,239,0.6)", background: "rgba(58,36,27,0.28)",
@@ -139,7 +155,7 @@ export default function OyunPage() {
           <p style={{ margin: "0 0 10px", fontWeight: 800, color: "var(--ink)" }}>Oyunu bitirmek istediğine emin misin?</p>
           <div className="btn-row">
             <button className="btn btn--pass" onClick={() => setConfirmEnd(false)}>Vazgeç</button>
-            <button className="btn btn--taboo" onClick={() => act({ type: "END_GAME", code, byUserId: getUserId() })}>Evet, bitir</button>
+            <button className="btn btn--danger" onClick={() => act({ type: "END_GAME", code, byUserId: getUserId() })}>Evet, bitir</button>
           </div>
         </div>
       )}
@@ -157,7 +173,7 @@ export default function OyunPage() {
         <div className="winner-team">{win ? <span style={{ ...chipStyle, fontSize: 24, color: teamColor(win.id) }}>{win.name}</span> : "Berabere"}</div>
         <p className="turn-sub" style={{ marginBottom: 20 }}>{A.name} {A.score} — {B.score} {B.name}</p>
         <div className="stack">
-          {me?.isHost && <button className="btn btn--bubble" disabled={busy}
+          {isHost && <button className="btn btn--bubble" disabled={busy}
             onClick={() => act({ type: "RESTART_GAME", code, byUserId: getUserId() })}>Tekrar Oyna</button>}
           <Link href="/" className="btn btn--ghost">Ana sayfa</Link>
         </div>
@@ -170,33 +186,28 @@ export default function OyunPage() {
       <div className="score-pill"><div className="name" style={{ color: "var(--kirmizi)" }}>{A.name}</div><div className="val">{A.score}</div></div>
       <div className="score-pill"><div className="name" style={{ color: "var(--mavi)" }}>{B.name}</div><div className="val">{B.score}</div></div>
       {status === TurnStatus.ACTIVE && (
-        <div className={`timer ${remaining <= 10 ? "low" : ""}`}><span className="t">{remaining}</span><span className="lbl">SANİYE</span></div>
+        <div className={`timer ${remaining <= 10 && !paused ? "low" : ""}`} style={paused ? { opacity: 0.6 } : undefined}>
+          <span className="t">{remaining}</span><span className="lbl">{paused ? "DURDU" : "SANİYE"}</span>
+        </div>
       )}
     </div>
   );
 
   // ---------- TUR HAZIR ----------
   if (status === TurnStatus.READY) {
-    // Oyunun ilk turu -> herkese yazı-tura
     const isFirstTurn = room.round === 1 && room.turnIndex === 0;
     const startTeamId = t?.teamId ?? "teamA";
     if (isFirstTurn && !coinDone) {
       return (
         <main className="screen game">
-          {Bg}
-          {Scoreboard}
-          <CoinFlip
-            winnerTeamId={startTeamId}
-            winnerName={room.teams[startTeamId].name}
-            onDone={() => setCoinDone(true)}
-          />
+          {Bg}{Scoreboard}
+          <CoinFlip winnerTeamId={startTeamId} winnerName={room.teams[startTeamId].name} onDone={() => setCoinDone(true)} />
         </main>
       );
     }
     return (
       <main className="screen game">
-        {Bg}
-        {Scoreboard}
+        {Bg}{Scoreboard}
         <div className="inforow">{MeChip}{TargetChip}{CodeChip}</div>
         <div className="mid">
           <div className="turn-hero">
@@ -219,69 +230,95 @@ export default function OyunPage() {
 
   // ---------- TUR AKTİF ----------
   const passesLeft = t ? room.settings.passLimit - t.usedPasses : 0;
+  const blocked = busy || expired || paused || !!lastTaboo;
+
   const topInfo = (
     <div className="inforow">
       {MeChip}
       {role === "explainer"
         ? <span style={{ ...chipStyle, color: "var(--ink)" }}>Sıra sende — anlat!</span>
-        : role === "teammate"
-          ? exChip
-          : <span style={{ ...chipStyle, color: exTeamId ? teamColor(exTeamId) : undefined }}>{explainer?.name} anlatıyor · rakip</span>}
-      {TargetChip}
+        : role === "teammate" ? exChip
+        : <span style={{ ...chipStyle, color: exTeamId ? teamColor(exTeamId) : undefined }}>{explainer?.name} anlatıyor · rakip</span>}
       {CodeChip}
     </div>
   );
 
+  // Tabu şeridi (herkes görür)
+  const TabooBanner = lastTaboo ? (
+    <div className="taboo-banner">
+      <p className="t">⛔ Yasaklı kelime kullanıldı! (−{room.settings.tabooPenalty})</p>
+      <p className="s">{card ? `“${card.mainWord}” kartı` : "Kart"} · {exTeamId ? room.teams[exTeamId].name : ""} −{room.settings.tabooPenalty} puan</p>
+      {iReported && (
+        <button className="btn btn--pass" style={{ fontSize: 14, padding: 10 }} disabled={busy}
+          onClick={() => act({ type: "UNDO_TABOO", code, byUserId: getUserId() })}>
+          Geri al
+        </button>
+      )}
+    </div>
+  ) : null;
+
   return (
     <main className="screen game">
-      {Bg}
-      {Scoreboard}
-      {topInfo}
+      {Bg}{Scoreboard}{topInfo}
 
       {role === "teammate" ? (
         <div className="mid">
           <div className="turn-hero">
             <p className="turn-name">{explainer?.name} anlatıyor</p>
             <p className="turn-sub">🙈 Kartı göremezsin — dinle ve tahmin et!</p>
+            {paused && <p className="turn-sub" style={{ marginTop: 8 }}>⏸ Süre duraklatıldı</p>}
           </div>
+          {TabooBanner}
         </div>
       ) : (
         <>
           <div className="mid">
             {card ? (
               <div className="word-card">
-                <p className="word-label">Anlat</p>
+                <p className="word-label">{role === "explainer" ? "Anlat" : "Takip Et"}</p>
                 <p className="main-word">{card.mainWord}</p>
                 <ul className="forbidden-list">{card.forbiddenWords.map((w) => <li key={w}>{w}</li>)}</ul>
               </div>
             ) : <p className="turn-sub" style={{ textAlign: "center" }}>Kart yükleniyor…</p>}
+            {TabooBanner}
             {expired && <p className="turn-sub" style={{ textAlign: "center", marginTop: 8 }}>⏱ Süre doldu — sıradaki oyuncuya geçiliyor…</p>}
+            {paused && !lastTaboo && <p className="turn-sub" style={{ textAlign: "center", marginTop: 8 }}>⏸ Süre duraklatıldı</p>}
           </div>
 
           {role === "explainer" && (
             <>
               <div className="btn-row">
-                <button className="btn btn--taboo" disabled={busy || expired}
-                  onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId() }, [80, 40, 80])}>
-                  Yanlış dedim (−1)
+                <button className="btn btn--oops" disabled={blocked}
+                  onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId(), cardId: cardId ?? undefined }, [80, 40, 80])}>
+                  Oops! Yasaklı<br />Kelime Kullandım
                 </button>
-                <button className="btn btn--go" disabled={busy || expired}
+                <button className="btn btn--go" disabled={blocked}
                   onClick={() => act({ type: "CORRECT_GUESS", code, byUserId: getUserId() }, 50)}>Anlattım ✓</button>
               </div>
-              <button className="btn btn--pass" style={{ marginTop: 8 }} disabled={busy || expired || passesLeft <= 0}
+              <button className="btn btn--pass" style={{ marginTop: 8 }} disabled={blocked || passesLeft <= 0}
                 onClick={() => act({ type: "PASS_CARD", code, byUserId: getUserId() }, 30)}>
                 Pas{passesLeft > 0 ? ` (${passesLeft})` : ""}
               </button>
             </>
           )}
+
           {role === "opponentCaptain" && (
-            <button className="btn btn--taboo" disabled={busy || expired}
-              onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId() }, [80, 40, 80])}>
-              Yasaklı Kelime Dedi! (−1)
-            </button>
+            <>
+              <button className="btn btn--oops" disabled={blocked}
+                onClick={() => act({ type: "TABOO_VIOLATION", code, byUserId: getUserId(), cardId: cardId ?? undefined }, [80, 40, 80])}>
+                Hey! Yasaklı Kelimeyi Söyledin!
+              </button>
+              {!lastTaboo && (
+                <button className="btn btn--pause" style={{ marginTop: 8 }} disabled={busy || expired}
+                  onClick={() => act({ type: paused ? "RESUME_TURN" : "PAUSE_TURN", code, byUserId: getUserId() }, 30)}>
+                  {paused ? "▶ Devam et" : "⏸ Süreyi duraklat"}
+                </button>
+              )}
+            </>
           )}
+
           {role === "opponent" && (
-            <p className="turn-sub" style={{ textAlign: "center" }}>👀 Kelimeyi kontrol et. Yasaklı geçerse kaptanınız butona bassın.</p>
+            <p className="turn-sub" style={{ textAlign: "center" }}>👀 Yasaklı geçerse kaptanınız butona bassın.</p>
           )}
         </>
       )}

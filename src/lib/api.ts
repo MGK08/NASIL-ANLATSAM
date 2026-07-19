@@ -23,3 +23,15 @@ export async function getCard(code: string, userId: string): Promise<Card | null
   if (!res.ok) return null;
   return res.json();
 }
+
+/** "Buradayım" sinyali — 30 sn sessiz kalan oyuncu düşmüş sayılır. */
+export async function sendHeartbeat(code: string, userId: string): Promise<void> {
+  try {
+    await fetch("/api/heartbeat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, userId }),
+      keepalive: true,
+    });
+  } catch { /* sessizce geç */ }
+}

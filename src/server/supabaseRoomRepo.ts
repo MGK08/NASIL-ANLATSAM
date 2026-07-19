@@ -43,6 +43,17 @@ export class SupabaseRoomRepo implements RoomRepo {
     if (sErr) throw new Error("insertRoom(slots): " + sErr.message);
   }
 
+  async loadPresence(code: string): Promise<Record<string, number>> {
+    const { data, error } = await supabaseAdmin
+      .from("presence").select("user_id,last_seen_at").eq("room_code", code);
+    if (error || !data) return {};
+    const out: Record<string, number> = {};
+    for (const r of data as { user_id: string; last_seen_at: string }[]) {
+      out[r.user_id] = new Date(r.last_seen_at).getTime();
+    }
+    return out;
+  }
+
   async saveRoom(room: Room, opts?: { slots?: boolean }): Promise<void> {
     const { roomRow, slotRows } = mapRoomToRows(room);
     const { error: rErr } = await supabaseAdmin.from("rooms").update(roomRow).eq("code", room.code);

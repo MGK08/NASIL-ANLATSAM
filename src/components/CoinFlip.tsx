@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { TeamId } from "../types/game";
 
 /**
- * Oyun başında yazı-tura: madalyonun iki yüzü de KUPALABS logosu
- * (biri kırmızı, biri mavi). Başlayan takımın yüzünde durur.
+ * Yazı-tura: gerçek çift yüzlü madalyon.
+ * Bir yüzü kırmızı, diğer yüzü mavi (ikisinde de KUPALABS logosu).
+ * Dikey eksende (rotateX) döner, kazanan takımın yüzünde durur.
  */
 export function CoinFlip({
   winnerTeamId,
@@ -16,62 +17,65 @@ export function CoinFlip({
   winnerName: string;
   onDone: () => void;
 }) {
-  const [phase, setPhase] = useState<"spin" | "result">("spin");
-  const [face, setFace] = useState<TeamId>("teamA");
-
-  // onDone her render'da yeniden oluşuyor; ref'te tutarsak zamanlayıcılar sıfırlanmaz.
+  const [stopped, setStopped] = useState(false);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   useEffect(() => {
-    const spin = setInterval(() => setFace((f) => (f === "teamA" ? "teamB" : "teamA")), 110);
     const stop = setTimeout(() => {
-      clearInterval(spin);
-      setFace(winnerTeamId);
-      setPhase("result");
+      setStopped(true);
       if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate([60, 50, 120]);
-    }, 1900);
-    const done = setTimeout(() => doneRef.current(), 3800);
-    return () => { clearInterval(spin); clearTimeout(stop); clearTimeout(done); };
+    }, 2000);
+    const done = setTimeout(() => doneRef.current(), 3900);
+    return () => { clearTimeout(stop); clearTimeout(done); };
   }, [winnerTeamId]);
 
-  const color = face === "teamA" ? "var(--kirmizi)" : "var(--mavi)";
+  // Kırmızı = ön yüz (0deg), Mavi = arka yüz (180deg)
+  const finalDeg = winnerTeamId === "teamA" ? 1080 : 1260;
+
+  const face = (bg: string, back: boolean) => (
+    <div style={{
+      position: "absolute", inset: 0, borderRadius: "50%", background: bg,
+      border: "8px solid var(--cream)", display: "grid", placeItems: "center",
+      backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden",
+      transform: back ? "rotateX(180deg)" : undefined,
+    }}>
+      <div style={{ width: "76%", height: "76%", borderRadius: "50%", background: "#fff", display: "grid", placeItems: "center", overflow: "hidden" }}>
+        <img src="/kupalabs-logo.jpg" alt="KUPA labs" style={{ width: "86%" }} />
+      </div>
+    </div>
+  );
 
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 300,
       background: "rgba(42,26,18,0.72)", backdropFilter: "blur(3px)",
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 22,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24,
     }}>
       <p style={{ fontFamily: "var(--display)", fontWeight: 800, color: "var(--cream)", fontSize: 22, margin: 0 }}>
         Yazı Tura
       </p>
 
-      <div style={{
-        width: 158, height: 158, borderRadius: "50%",
-        background: color, border: "8px solid var(--cream)",
-        boxShadow: "0 14px 34px rgba(0,0,0,.45)",
-        display: "grid", placeItems: "center",
-        transition: "background .12s linear",
-        animation: phase === "spin" ? "coinspin .42s linear infinite" : "coinpop .5s ease",
-      }}>
-        {/* iç beyaz disk + KUPALABS logosu */}
+      <div style={{ perspective: 800 }}>
         <div style={{
-          width: "78%", height: "78%", borderRadius: "50%", background: "#fff",
-          display: "grid", placeItems: "center", overflow: "hidden",
-          boxShadow: "inset 0 0 0 3px rgba(0,0,0,.06)",
+          position: "relative", width: 150, height: 150,
+          transformStyle: "preserve-3d",
+          filter: "drop-shadow(0 14px 26px rgba(0,0,0,.45))",
+          animation: stopped ? undefined : "coinspin .55s linear infinite",
+          transform: stopped ? `rotateX(${finalDeg}deg)` : undefined,
+          transition: stopped ? "transform 1s cubic-bezier(.2,.7,.2,1)" : undefined,
         }}>
-          <img src="/kupalabs-logo.jpg" alt="KUPA labs"
-            style={{ width: "84%", objectFit: "contain" }} />
+          {face("var(--kirmizi)", false)}
+          {face("var(--mavi)", true)}
         </div>
       </div>
 
       <p style={{
         fontFamily: "var(--display)", fontWeight: 800, fontSize: 20, margin: 0,
-        color: "var(--cream)", opacity: phase === "result" ? 1 : 0.35,
+        color: "var(--cream)", opacity: stopped ? 1 : 0.35,
         transition: "opacity .3s ease", textAlign: "center", padding: "0 20px",
       }}>
-        {phase === "result" ? `${winnerName} başlıyor!` : "…"}
+        {stopped ? `${winnerName} başlıyor!` : "…"}
       </p>
     </div>
   );

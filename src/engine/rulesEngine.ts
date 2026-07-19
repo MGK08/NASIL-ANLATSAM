@@ -62,6 +62,17 @@ export function validateAction(
       if (room.phase !== GamePhase.LOBBY) return { ok: false, reason: "lobby_only" };
       return { ok: true };
 
+    case "TAKEOVER_SLOT": {
+      // Düşen oyuncunun yerine geçme. "Gerçekten düşmüş mü?" kontrolü
+      // sunucuda (handleAction) bağlantı kaydına bakılarak yapılır.
+      const slot = room.slots[action.slotId];
+      if (!slot) return { ok: false, reason: "no_such_slot" };
+      if (slot.claimedByUserId === action.userId) return { ok: false, reason: "already_yours" };
+      const mine = Object.values(room.slots).find((s) => s.claimedByUserId === action.userId);
+      if (mine) return { ok: false, reason: "already_have_slot" };
+      return { ok: true };
+    }
+
     case "START_GAME": {
       if (room.phase !== GamePhase.LOBBY) return { ok: false, reason: "lobby_only" };
       if (action.byUserId !== room.hostUserId) return { ok: false, reason: "host_only" };
@@ -83,6 +94,8 @@ export function validateAction(
       const ex = currentExplainer(room);
       if (!ex || ex.claimedByUserId !== action.byUserId) return { ok: false, reason: "not_explainer" };
       if (room.activeTurn?.status !== TurnStatus.ACTIVE) return { ok: false, reason: "turn_not_active" };
+      if (isPaused(room)) return { ok: false, reason: "paused" };
+      if (hasPendingTaboo(room)) return { ok: false, reason: "taboo_pending" };
       if (action.type === "PASS_CARD" && room.activeTurn.usedPasses >= room.settings.passLimit)
         return { ok: false, reason: "no_passes_left" };
       return { ok: true };
@@ -99,6 +112,42 @@ export function validateAction(
       const isOppCaptain = !!capSlot && capSlot.claimedByUserId === action.byUserId;
       if (!isOppCaptain && !isExplainer)
         return { ok: false, reason: "only_opponent_captain" };
+      if (isPaused(room)) return { ok: false, reason: "paused" };
+      // Şerit açıkken ikinci bildirim alınmaz (çift sayım olmasın)
+      if (hasPendingTaboo(room)) return { ok: false, reason: "taboo_pending" };
+      const cur = room.activeTurn.currentCardId;
+      // Buton hangi kart için basıldıysa o kart hâlâ ekrandaki kart olmalı.
+      // Geç ulaşan (ekranı yenilenmemiş) istek yeni kartı cezalandırmaz.
+      if (action.cardId && action.cardId !== cur) return { ok: false, reason: "stale_card" };
+      // Bir karta en fazla bir ceza
+      if (cur && room.activeTurn.tabooCardIds.includes(cur)) return { ok: false, reason: "already_tabooed" };
+      return { ok: true };
+    }
+
+    case "UNDO_TABOO": {
+      const lt = room.activeTurn?.lastTaboo;
+      if (!lt) return { ok: false, reason: "no_taboo_to_undo" };
+      if (lt.byUserId !== action.byUserId) return { ok: false, reason: "not_reporter" };
+      return { ok: true };
+    }
+
+    case "RESUME_AFTER_TABOO": {
+      if (!room.activeTurn?.lastTaboo) return { ok: false, reason: "no_taboo_pending" };
+      return { ok: true };
+    }
+
+    case "PAUSE_TURN": {
+      if (room.activeTurn?.status !== TurnStatus.ACTIVE) return { ok: false, reason: "turn_not_active" };
+      if (!isOpponentCaptain(room, action.byUserId)) return { ok: false, reason: "only_opponent_captain" };
+      if (isPaused(room)) return { ok: false, reason: "already_paused" };
+      return { ok: true };
+    }
+
+    case "RESUME_TURN": {
+      if (room.activeTurn?.status !== TurnStatus.ACTIVE) return { ok: false, reason: "turn_not_active" };
+      if (!isOpponentCaptain(room, action.byUserId)) return { ok: false, reason: "only_opponent_captain" };
+      if (!isPaused(room)) return { ok: false, reason: "not_paused" };
+      if (hasPendingTaboo(room)) return { ok: false, reason: "taboo_pending" };
       return { ok: true };
     }
 
@@ -106,6 +155,7 @@ export function validateAction(
       // Yalnızca aktif tur bitirilebilir; ilk END_TURN sonrası status READY olur,
       // ikinci (çift) END_TURN reddedilir -> yanlışlıkla iki tur atlanmaz.
       if (room.activeTurn?.status !== TurnStatus.ACTIVE) return { ok: false, reason: "turn_not_active" };
+      if (isPaused(room)) return { ok: false, reason: "paused" };
       return { ok: true };
     case "NEXT_TURN":
       if (!room.activeTurn) return { ok: false, reason: "no_active_turn" };
@@ -127,6 +177,25 @@ export function validateAction(
 /* ============================================================
  * UYGULAMA — saf reducer: (room, action) => yeni room
  * ============================================================ */
+/** Rakip kaptan mı? (anlatan takımın rakibinin kaptanı) */
+function isOpponentCaptain(room: Room, userId: string): boolean {
+  if (!room.activeTurn) return false;
+  const opp = otherTeam(room.activeTurn.teamId);
+  const capSlotId = room.teams[opp].captainSlotId;
+  const capSlot = capSlotId ? room.slots[capSlotId] : undefined;
+  return !!capSlot && capSlot.claimedByUserId === userId;
+}
+/** Süre şu an duraklatılmış mı? */
+function isPaused(room: Room): boolean {
+  return !!room.activeTurn?.pausedAt;
+}
+/** Tabu şeridi (geri alma penceresi) açık mı? */
+function hasPendingTaboo(room: Room): boolean {
+  return !!room.activeTurn?.lastTaboo;
+}
+/** Geri alma / şerit süresi (ms) */
+export const TABOO_BANNER_MS = 5000;
+
 export function applyAction(room: Room, action: GameAction, now: number = Date.now()): Room {
   const r = clone(room);
   r.updatedAt = now;
@@ -146,6 +215,13 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
     case "RELEASE_SLOT": {
       const prev = slotOfUser(r, action.userId);
       if (prev) { prev.claimedByUserId = null; prev.connected = false; }
+      return r;
+    }
+
+    case "TAKEOVER_SLOT": {
+      const slot = r.slots[action.slotId];
+      slot.claimedByUserId = action.userId;
+      slot.connected = true;
       return r;
     }
 
@@ -201,13 +277,57 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
     }
 
     case "TABOO_VIOLATION": {
+      // -1 uygulanır, SÜRE DURUR ve 5 sn'lik şerit açılır.
+      // Yeni kart RESUME_AFTER_TABOO ile gelir (şerit boyunca kart ekranda kalır).
       const t = r.activeTurn!;
       if (t.currentCardId) t.tabooCardIds.push(t.currentCardId);
       const team = r.teams[t.teamId];
       team.score = Math.max(0, team.score - r.settings.tabooPenalty); // 0'ın altına inmez
+      t.pausedAt = now;
+      t.pausedRemainingMs = Math.max(0, (t.endsAt ?? now) - now);
+      t.lastTaboo = { cardId: t.currentCardId ?? "", byUserId: action.byUserId, at: now };
+      return r;
+    }
+
+    case "UNDO_TABOO": {
+      // Yanlışlıkla basıldı: puan geri verilir, aynı karttan devam edilir.
+      const t = r.activeTurn!;
+      const lt = t.lastTaboo!;
+      t.tabooCardIds = t.tabooCardIds.filter((id) => id !== lt.cardId);
+      const team = r.teams[t.teamId];
+      team.score = team.score + r.settings.tabooPenalty;
+      t.lastTaboo = null;
+      t.endsAt = now + (t.pausedRemainingMs ?? 0);
+      t.pausedAt = null;
+      t.pausedRemainingMs = null;
+      return r;
+    }
+
+    case "RESUME_AFTER_TABOO": {
+      // Şerit bitti: yeni kart gelir, süre kaldığı yerden akar.
+      const t = r.activeTurn!;
+      t.lastTaboo = null;
       const drawn = drawNextCard(r);
       r.usedCardIds = drawn.usedCardIds;
       t.currentCardId = drawn.cardId;
+      t.endsAt = now + (t.pausedRemainingMs ?? 0);
+      t.pausedAt = null;
+      t.pausedRemainingMs = null;
+      return r;
+    }
+
+    case "PAUSE_TURN": {
+      const t = r.activeTurn!;
+      t.pausedAt = now;
+      t.pausedRemainingMs = Math.max(0, (t.endsAt ?? now) - now);
+      return r;
+    }
+
+    case "RESUME_TURN": {
+      const t = r.activeTurn!;
+      t.endsAt = now + (t.pausedRemainingMs ?? 0);
+      t.pausedAt = null;
+      t.pausedRemainingMs = null;
       return r;
     }
 
