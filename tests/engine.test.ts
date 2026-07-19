@@ -111,6 +111,9 @@ ok(!geri.activeTurn!.pausedAt, "geri alınca süre devam etti");
 ok(!validateAction(room, { type: "UNDO_TABOO", code: room.code, byUserId: "u_zey" }).ok,
    "geri almayı sadece basan kişi yapabilir");
 
+console.log("\n[8c2] Puan 0'ken tabu + geri al -> bedava puan verilmez");
+ok(geri.teams.teamA.score === 1, "0'dan düşmeyen puan kadar iade edildi, fazlası değil");
+
 console.log("\n[8d] Şerit bitti -> yeni kart, süre devam");
 room = step(room, { type: "RESUME_AFTER_TABOO", code: room.code });
 ok(room.activeTurn!.currentCardId !== kartTabu, "şerit sonrası yeni kart geldi");

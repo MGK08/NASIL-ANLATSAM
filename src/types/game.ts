@@ -107,7 +107,7 @@ export interface ActiveTurn {
   pausedAt?: number | null;
   pausedRemainingMs?: number | null;
   /** Son tabu bildirimi — 5 sn'lik şerit + "Geri al" penceresi için. */
-  lastTaboo?: { cardId: string; byUserId: string; at: number } | null;
+  lastTaboo?: { cardId: string; byUserId: string; at: number; applied?: number } | null;
 }
 
 /* ============================================================

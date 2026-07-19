@@ -282,10 +282,12 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
       const t = r.activeTurn!;
       if (t.currentCardId) t.tabooCardIds.push(t.currentCardId);
       const team = r.teams[t.teamId];
-      team.score = Math.max(0, team.score - r.settings.tabooPenalty); // 0'ın altına inmez
+      const oncekiSkor = team.score;
+      team.score = Math.max(0, oncekiSkor - r.settings.tabooPenalty); // 0'ın altına inmez
+      const dusen = oncekiSkor - team.score; // 0'da kaldıysa 0
       t.pausedAt = now;
       t.pausedRemainingMs = Math.max(0, (t.endsAt ?? now) - now);
-      t.lastTaboo = { cardId: t.currentCardId ?? "", byUserId: action.byUserId, at: now };
+      t.lastTaboo = { cardId: t.currentCardId ?? "", byUserId: action.byUserId, at: now, applied: dusen };
       return r;
     }
 
@@ -295,7 +297,8 @@ export function applyAction(room: Room, action: GameAction, now: number = Date.n
       const lt = t.lastTaboo!;
       t.tabooCardIds = t.tabooCardIds.filter((id) => id !== lt.cardId);
       const team = r.teams[t.teamId];
-      team.score = team.score + r.settings.tabooPenalty;
+      // Yalnızca gerçekten düşen kadar iade edilir (0'da kalmışsa bedava puan verilmez)
+      team.score = team.score + (lt.applied ?? r.settings.tabooPenalty);
       t.lastTaboo = null;
       t.endsAt = now + (t.pausedRemainingMs ?? 0);
       t.pausedAt = null;

@@ -56,11 +56,12 @@ export function CoinFlip({
         Yazı Tura
       </p>
 
-      <div style={{ perspective: 800 }}>
+      {/* NOT: 3D dönen katmana filter/gölge UYGULANMAZ —
+          filter, transform-style: preserve-3d'yi düzleştirir ve arka yüz görünmez olur. */}
+      <div style={{ perspective: 800, filter: "drop-shadow(0 14px 26px rgba(0,0,0,.45))" }}>
         <div style={{
           position: "relative", width: 150, height: 150,
           transformStyle: "preserve-3d",
-          filter: "drop-shadow(0 14px 26px rgba(0,0,0,.45))",
           animation: stopped ? undefined : "coinspin .55s linear infinite",
           transform: stopped ? `rotateX(${finalDeg}deg)` : undefined,
           transition: stopped ? "transform 1s cubic-bezier(.2,.7,.2,1)" : undefined,
