@@ -88,6 +88,6 @@ async function handleActionOnce(
 
   const next = applyAction(room, action, now);
   const slotsChanged = JSON.stringify(room.slots) !== JSON.stringify(next.slots);
-  await repo.saveRoom(next, { slots: slotsChanged, expectedUpdatedAt: room.updatedAt });
+  await repo.saveRoom(next, { slots: slotsChanged, expectedUpdatedAt: room.updatedAtRaw ?? room.updatedAt });
   return { ok: true };
 }

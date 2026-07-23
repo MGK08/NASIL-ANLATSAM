@@ -73,6 +73,7 @@ export function mapRowsToRoom(roomRow: DbRoomRow, slotRows: DbSlotRow[]): Room {
     winnerTeamId: roomRow.winner_team_id as TeamId | null,
     createdAt: toMs(roomRow.created_at),
     updatedAt: toMs(roomRow.updated_at),
+    updatedAtRaw: typeof roomRow.updated_at === "string" ? roomRow.updated_at : undefined,
   };
 }
 

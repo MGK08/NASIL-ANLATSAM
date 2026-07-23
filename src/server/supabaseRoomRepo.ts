@@ -55,23 +55,22 @@ export class SupabaseRoomRepo implements RoomRepo {
     return out;
   }
 
-  async saveRoom(room: Room, opts?: { slots?: boolean; expectedUpdatedAt?: number }): Promise<void> {
+  async saveRoom(room: Room, opts?: { slots?: boolean; expectedUpdatedAt?: string | number }): Promise<void> {
     const { roomRow, slotRows } = mapRoomToRows(room);
 
     // İYİMSER KİLİT: yalnızca okuduğumuz sürüm hâlâ geçerliyse yaz.
     // Araya başka bir yazma girdiyse (ör. eski ekrandan gelen istek) bu yazma
     // iptal edilir; yoksa "bu kart kullanıldı" gibi bilgiler silinip aynı kelime
     // ikinci kez çekilebiliyordu.
-    let q = supabaseAdmin
-      .from("rooms")
-      .update({ ...roomRow, updated_at: new Date().toISOString() })
-      .eq("code", room.code);
-    if (opts?.expectedUpdatedAt) {
-      q = q.eq("updated_at", new Date(opts.expectedUpdatedAt).toISOString());
+    // updated_at'ı DB trigger'ı günceller; biz yazmayız.
+    // Karşılaştırma DB'den gelen HAM değerle yapılır (mikrosaniye kaybı olmasın).
+    let q = supabaseAdmin.from("rooms").update(roomRow).eq("code", room.code);
+    if (typeof opts?.expectedUpdatedAt === "string") {
+      q = q.eq("updated_at", opts.expectedUpdatedAt);
     }
     const { data: updated, error: rErr } = await q.select("code");
     if (rErr) throw new Error("saveRoom(rooms): " + rErr.message);
-    if (opts?.expectedUpdatedAt && (!updated || updated.length === 0)) throw new ConflictError();
+    if (typeof opts?.expectedUpdatedAt === "string" && (!updated || updated.length === 0)) throw new ConflictError();
 
     // Slotlar degismediyse (oyun ici aksiyonlar) hic yazma -> 1-2 tur daha az gidis-donus.
     if (opts && opts.slots === false) return;

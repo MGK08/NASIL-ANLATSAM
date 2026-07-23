@@ -10,7 +10,7 @@ export interface RoomRepo {
   fetchDeckCardIds(deckId: string): Promise<string[]>;
   loadRoom(code: string): Promise<Room | null>;
   insertRoom(room: Room): Promise<void>;
-  saveRoom(room: Room, opts?: { slots?: boolean; expectedUpdatedAt?: number }): Promise<void>;
+  saveRoom(room: Room, opts?: { slots?: boolean; expectedUpdatedAt?: string | number }): Promise<void>;
   /** userId -> son görülme (ms). Uygulanmazsa bağlantı takibi devre dışı sayılır. */
   loadPresence?(code: string): Promise<Record<string, number>>;
   fetchCard(cardId: string): Promise<Card | null>;

@@ -96,3 +96,61 @@ async function main() {
   if (fail > 0) process.exit(1);
 }
 main();
+
+/**
+ * REGRESYON: Postgres timestamptz MİKROSANİYE tutar; JS ms'e yuvarlar.
+ * Sürüm kontrolü ms'e çevrilmiş değerle yapılırsa hiçbir yazma eşleşmez
+ * ve oyuncular isim bile seçemez. Ham değerle karşılaştırılmalı.
+ */
+class MicroRepo implements RoomRepo {
+  rooms = new Map<string, Room>();
+  raw = new Map<string, string>();
+  n = 0;
+  constructor(public deck: string[]) {}
+  async fetchDeckCardIds(): Promise<string[]> { return [...this.deck]; }
+  async fetchCard(): Promise<null> { return null; }
+  private stamp(): string {
+    // mikrosaniyeli damga (ms'e çevrilince bilgi kaybolur)
+    this.n++;
+    return `2026-01-01T00:00:${String(this.n).padStart(2, "0")}.123456+00:00`;
+  }
+  async loadRoom(code: string): Promise<Room | null> {
+    const r = this.rooms.get(code); if (!r) return null;
+    const c = structuredClone(r);
+    c.updatedAtRaw = this.raw.get(code);
+    c.updatedAt = Date.parse(this.raw.get(code)!); // ms'e yuvarlanır
+    return c;
+  }
+  async insertRoom(room: Room): Promise<void> {
+    this.rooms.set(room.code, structuredClone(room));
+    this.raw.set(room.code, this.stamp());
+  }
+  async saveRoom(room: Room, opts?: { expectedUpdatedAt?: string | number }): Promise<void> {
+    const cur = this.raw.get(room.code)!;
+    if (typeof opts?.expectedUpdatedAt === "string" && opts.expectedUpdatedAt !== cur) throw new ConflictError();
+    // ms'e çevrilmiş sayı gelirse ham değere eşit olmaz -> yanlışlıkla çakışma sayılırdı
+    if (typeof opts?.expectedUpdatedAt === "number" && opts.expectedUpdatedAt !== Date.parse(cur)) throw new ConflictError();
+    this.rooms.set(room.code, structuredClone(room));
+    this.raw.set(room.code, this.stamp());
+  }
+}
+
+async function regresyon() {
+  console.log("\n[3] Mikrosaniyeli zaman damgası -> isim seçilebilmeli");
+  const repo = new MicroRepo(["c001", "c002", "c003", "c004"]);
+  const created = await handleAction(repo, {
+    type: "CREATE_ROOM", hostUserId: "u_ali",
+    settings: { ...DEFAULT_SETTINGS }, setup,
+  });
+  const code = (created as { code: string }).code;
+  const r = (await repo.loadRoom(code))!;
+  const ayse = Object.values(r.slots).find((s) => s.name === "Ayşe")!.slotId;
+  const res = await handleAction(repo, { type: "CLAIM_SLOT", code, slotId: ayse, userId: "u_ayse" });
+  ok(res.ok === true, "oyuncu ismini seçebildi (sürüm kontrolü yanlış çakışma üretmiyor)");
+  const r2 = (await repo.loadRoom(code))!;
+  ok(r2.slots[ayse].claimedByUserId === "u_ayse", "seçim veritabanına yazıldı");
+
+  console.log(`\n==== regresyon: ${pass} geçti, ${fail} kaldı ====`);
+  if (fail > 0) process.exit(1);
+}
+setTimeout(regresyon, 300);

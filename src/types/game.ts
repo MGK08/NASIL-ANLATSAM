@@ -129,6 +129,10 @@ export interface Room {
   winnerTeamId: TeamId | null;
   createdAt: number;
   updatedAt: number;
+  /** DB'deki updated_at'ın HAM hali. Sürüm kontrolü bununla yapılır:
+   *  ms'e çevirip geri yazmak mikrosaniyeleri kaybettirir ve her yazma
+   *  yanlışlıkla "çakışma" sanılır. */
+  updatedAtRaw?: string;
   /** Sunucu tarafından eklenir (DB'de tutulmaz): slotId -> son görülme (ms) */
   presence?: Record<string, number>;
   /** Kurucu düştüyse yetkiyi geçici olarak taşıyan kullanıcı */
