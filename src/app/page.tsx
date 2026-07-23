@@ -14,6 +14,12 @@ export default function Home() {
           <Link href="/kur" className="btn btn--primary">Oyun Kur</Link>
           <Link href="/katil" className="btn btn--ghost">Oyuna Katıl</Link>
         </div>
+        <Link href="/gizlilik" style={{
+          marginTop: 18, fontFamily: "var(--body)", fontWeight: 700, fontSize: 12.5,
+          color: "rgba(255,247,239,0.85)", textDecoration: "underline",
+        }}>
+          Gizlilik Politikası
+        </Link>
       </main>
     </>
   );
