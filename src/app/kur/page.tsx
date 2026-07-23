@@ -57,7 +57,7 @@ export default function KurPage() {
       },
     });
     setBusy(false);
-    if (res.ok && res.code) router.push(`/oda/${res.code}`);
+    if (res.ok && res.code) router.push(`/oda?kod=${res.code}`);
     else setError("Oyun kurulamadı. Tekrar dene." + (("reason" in res) ? ` (${res.reason})` : ""));
   }
 

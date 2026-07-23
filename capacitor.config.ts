@@ -1,15 +1,18 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
+/**
+ * GÖMÜLÜ SÜRÜM: arayüz telefonun içinde (out/ klasörü) çalışır.
+ * Artık canlı siteye bağlanılmıyor -> anında açılır ve Play Store'un
+ * "sadece web sitesi" itirazına takılmaz.
+ * API çağrıları Vercel'e gider (NEXT_PUBLIC_API_BASE).
+ */
 const config: CapacitorConfig = {
   appId: "app.kupalabs.nasilanlatsam",
   appName: "Nasıl Anlatsam?",
-  // Uygulamanın içinde barınan web klasörü (server.url kullandığımız için
-  // sadece placeholder; yine de gerekli).
-  webDir: "public",
-  server: {
-    // Android uygulaması doğrudan canlı Vercel sitesini yükler.
-    url: "https://nasil-anlatsam.vercel.app",
-    cleartext: false,
+  webDir: "out",
+  android: {
+    // Uygulama içi adres: https://localhost (API tarafında CORS ile izinli)
+    allowMixedContent: false,
   },
 };
 

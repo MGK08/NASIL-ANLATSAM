@@ -20,7 +20,7 @@ export default function KatilPage() {
     setBusy(true);
     const room = await getRoom(code);
     setBusy(false);
-    if (room) router.push(`/oda/${code}`);
+    if (room) router.push(`/oda?kod=${code}`);
     else setError("Bu kodla oda bulunamadı. Kodu kontrol et.");
   }
 
