@@ -11,6 +11,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Android 15+ kenardan kenara çizimi zorunlu kılıyor ve kapatılamıyor.
+  // Boşlukları biz yönetiyoruz (globals.css: --sat/--sab), bunun için şart.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -13,11 +13,25 @@
 
   --display: 'Baloo 2', system-ui, sans-serif;
   --body: 'Nunito', system-ui, sans-serif;
+
+  /* Sistem çubukları için güvenli alanlar.
+     Capacitor 8.3+ gerçek değerleri --safe-area-inset-* olarak enjekte eder
+     (Android WebView'da env() güvenilir değil). Sıra: enjekte edilen -> env() -> 0. */
+  --sat: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --sab: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sal: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --sar: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
 }
 
 * { box-sizing: border-box; }
 
-html, body { margin: 0; padding: 0; }
+html, body {
+  margin: 0; padding: 0;
+  /* iOS: yatay çevirince yazıları kendiliğinden büyütmesin */
+  -webkit-text-size-adjust: 100%;
+  /* iOS: sayfa sonunda lastik gibi esneyip zıplamasın */
+  overscroll-behavior: none;
+}
 
 body {
   min-height: 100dvh;
@@ -26,6 +40,9 @@ body {
   background: linear-gradient(160deg, var(--sunset-1) 0%, var(--sunset-2) 52%, var(--sunset-3) 100%);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+  /* iOS: dokununca gri parlama olmasın, çift dokunuş gecikmesi kalksın */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 /* ---------- yerleşim ---------- */
@@ -33,7 +50,10 @@ body {
   min-height: 100dvh;
   max-width: 460px;
   margin: 0 auto;
-  padding: 32px 22px calc(32px + env(safe-area-inset-bottom));
+  padding-top: max(32px, calc(var(--sat) + 10px));
+  padding-right: calc(22px + var(--sar));
+  padding-bottom: max(32px, calc(var(--sab) + 10px));
+  padding-left: calc(22px + var(--sal));
   display: flex;
   flex-direction: column;
 }
@@ -248,7 +268,12 @@ body {
 
 
 /* ---------- oyun ekranı: her cihaza uyum ---------- */
-.screen.game { padding-top: 14px; padding-bottom: 14px; gap: 0; }
+/* Oyun ekranı sıkı yerleşim — ama iOS güvenli alanları korunarak. */
+.screen.game {
+  padding-top: max(14px, calc(var(--sat) + 6px));
+  padding-bottom: max(14px, calc(var(--sab) + 6px));
+  gap: 0;
+}
 .game .inforow { margin: -2px 0 10px; }
 .game .inforow > * { font-size: 12px !important; padding: 4px 11px !important; }
 .game .btn { font-size: clamp(15px, 4.2vw, 19px); padding: clamp(11px, 3.2vw, 16px); }
@@ -289,3 +314,26 @@ body {
 .taboo-banner { background: var(--bubble); color: var(--ink); border-radius: 16px; padding: 12px; text-align: center; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
 .taboo-banner .t { font-family: var(--display); font-weight: 800; font-size: 16px; margin: 0 0 4px; }
 .taboo-banner .s { font-weight: 700; font-size: 12px; opacity: .8; margin: 0 0 8px; }
+
+
+/* ---------- iOS uyumu ---------- */
+/* Oyun ekranı dokunmayla kaydırılmasın, metin seçilmesin (uzun basınca
+   çıkan kopyala/paylaş balonu oyunu bozuyordu). */
+.screen.game { overscroll-behavior: contain; }
+.btn, .slot-btn, .stepper button, .cap-btn, .icon-btn,
+.score-pill, .timer, .inforow > *, .main-word, .forbidden-list,
+.wordmark, .turn-name, .code-big {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+/* Kaydırılabilir alanlarda akıcı hareket */
+.game .mid, .screen { -webkit-overflow-scrolling: touch; }
+
+/* iOS'ta düğmeler varsayılan gri gradyan almasın */
+button, input, textarea { -webkit-appearance: none; appearance: none; }
+
+/* Yatay mod / kısa ekranlarda oyun ekranı yine sığsın */
+@media (max-height: 480px) {
+  .screen.game { padding-top: max(10px, calc(var(--sat) + 4px)); padding-bottom: max(10px, calc(var(--sab) + 4px)); }
+  .game .topbar { margin-bottom: 6px; }
+  .game .main-word { font-size: clamp(18px, 5.5vw, 24px); }
+}
